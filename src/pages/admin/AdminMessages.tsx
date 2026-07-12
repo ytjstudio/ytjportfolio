@@ -1,0 +1,39 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Search, Trash2, Mail, MailOpen, Reply, X, Phone } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
+import type { Message } from '@/types'
+import { fetchAllMessagesAdmin, deleteMessage, markMessageRead, markMessageReplied } from '@/lib/api'
+import { formatDate } from '@/lib/utils'
+
+export default function AdminMessages() {
+  const [messages, setMessages] = useState<Message[]>([])
+  const [loading, setLoading] = useState(true)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<'all' | 'unread' | 'replied'>('all')
+  const [active, setActive] = useState<Message | null>(null)
+  const [confirmId, setConfirmId] = useState<string | null>(null)
+  const load = () => { setLoading(true); fetchAllMessagesAdmin().then(setMessages).finally(() => setLoading(false)) }
+  useEffect(load, [])
+  const filtered = useMemo(() => messages.filter((m) => { if (filter === 'unread' && m.is_read) return false; if (filter === 'replied' && !m.replied) return false; const q = query.toLowerCase(); return !q || m.name.toLowerCase().includes(q) || (m.email ?? '').toLowerCase().includes(q) || (m.message ?? '').toLowerCase().includes(q) }), [messages, query, filter])
+  const unreadCount = messages.filter((m) => !m.is_read).length
+  const openMessage = async (m: Message) => { setActive(m); if (!m.is_read) { await markMessageRead(m.id, true); setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, is_read: true } : x))) } }
+  const handleDelete = async (id: string) => { await deleteMessage(id); setMessages((prev) => prev.filter((m) => m.id !== id)); if (active?.id === id) setActive(null); setConfirmId(null) }
+  const handleReply = async (m: Message) => { if (m.email) window.location.href = `mailto:${m.email}?subject=Re: Your message to YTJ Studio&body=Hi ${m.name},%0D%0A%0D%0AThanks for reaching out!`; await markMessageReplied(m.id); setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, replied: true } : x))); setActive((cur) => (cur?.id === m.id ? { ...cur, replied: true } : cur)) }
+  return (
+    <div>
+      <div className="mb-8"><h1 className="font-display text-3xl font-bold text-white">Messages</h1><p className="mt-2 text-white">{messages.length} total • {unreadCount} unread</p></div>
+      <div className="flex flex-col md:flex-row gap-4 mb-6"><div className="relative flex-1"><Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search messages..." className="w-full glass pl-11 pr-4 py-3 rounded-xl outline-none focus:border-brand-purple/50 transition-colors text-white" /></div><div className="flex gap-2">{(['all', 'unread', 'replied'] as const).map((f) => <button key={f} onClick={() => setFilter(f)} className={`px-4 py-2 rounded-xl text-sm capitalize transition-all ${filter === f ? 'bg-brand-gradient shadow-glow text-white' : 'glass text-white hover:text-white'}`}>{f}</button>)}</div></div>
+      {loading ? <div className="glass p-12 text-center text-white">Loading messages...</div>
+      : filtered.length === 0 ? <div className="glass p-16 text-center text-white">No messages found.</div>
+      : (<div className="grid gap-3">{filtered.map((m) => (
+          <button key={m.id} onClick={() => openMessage(m)} className="glass p-4 rounded-2xl flex items-center gap-4 text-left hover:bg-white/[0.06] transition-colors">
+            <div className="h-10 w-10 rounded-full bg-brand-gradient flex items-center justify-center font-semibold shrink-0 text-white">{m.name.charAt(0).toUpperCase()}</div>
+            <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><span className="font-medium truncate text-white">{m.name}</span>{!m.is_read && <span className="h-2 w-2 rounded-full bg-brand-glow shrink-0" />}{m.replied && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-brand-glow/20 text-brand-glow">replied</span>}</div><p className="text-xs text-white truncate">{m.message}</p><span className="text-[10px] text-white">{formatDate(m.created_at)}</span></div>
+            <div className="flex gap-1 shrink-0" onClick={(e) => e.stopPropagation()}><button onClick={() => setConfirmId(m.id)} className="h-8 w-8 rounded-lg glass flex items-center justify-center hover:bg-red-500/10 hover:text-red-400 transition-colors" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button></div>
+          </button>
+        ))}</div>)}
+      <AnimatePresence>{active && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex justify-end bg-ink-900/70 backdrop-blur-sm" onClick={() => setActive(null)}><motion.div initial={{ x: '100%' }} animate={{ x: 0 }} exit={{ x: '100%' }} transition={{ type: 'spring', damping: 30, stiffness: 240 }} className="w-full max-w-md h-full glass-strong border-l border-white/[0.06] p-6 overflow-y-auto" onClick={(e) => e.stopPropagation()}><div className="flex items-center justify-between mb-6"><h2 className="font-display font-semibold text-lg text-white">Message</h2><button onClick={() => setActive(null)} className="h-8 w-8 rounded-lg glass flex items-center justify-center text-white"><X className="h-4 w-4" /></button></div><div className="space-y-4"><div className="flex items-center gap-3"><div className="h-12 w-12 rounded-full bg-brand-gradient flex items-center justify-center font-semibold text-white">{active.name.charAt(0).toUpperCase()}</div><div><div className="font-semibold text-white">{active.name}</div><div className="text-xs text-white">{formatDate(active.created_at)}</div></div></div>{active.email && <a href={`mailto:${active.email}`} className="flex items-center gap-2 text-sm text-white hover:text-white transition-colors"><Mail className="h-4 w-4 text-brand-purple" /> {active.email}</a>}{active.phone && <a href={`tel:${active.phone}`} className="flex items-center gap-2 text-sm text-white hover:text-white transition-colors"><Phone className="h-4 w-4 text-brand-blue" /> {active.phone}</a>}<div className="glass p-4 rounded-xl"><p className="text-sm text-white leading-relaxed whitespace-pre-line">{active.message}</p></div><div className="flex gap-2 pt-4"><button onClick={() => handleReply(active)} className="btn-primary flex-1"><Reply className="h-4 w-4" /> Reply</button><button onClick={async () => { await markMessageRead(active.id, false); setMessages((prev) => prev.map((x) => (x.id === active.id ? { ...x, is_read: false } : x))); setActive({ ...active, is_read: false }) }} className="btn-ghost" aria-label="Mark unread"><MailOpen className="h-4 w-4" /></button><button onClick={() => setConfirmId(active.id)} className="btn-outline !border-red-500/30 hover:!bg-red-500/10 hover:!text-red-400" aria-label="Delete"><Trash2 className="h-4 w-4" /></button></div></div></motion.div></motion.div>)}</AnimatePresence>
+      <AnimatePresence>{confirmId && (<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[60] flex items-center justify-center p-6 bg-ink-900/70 backdrop-blur-sm" onClick={() => setConfirmId(null)}><motion.div initial={{ scale: 0.9, y: 10 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9, y: 10 }} className="glass-strong p-6 rounded-2xl max-w-sm w-full" onClick={(e) => e.stopPropagation()}><h3 className="font-display font-semibold text-lg text-white">Delete message?</h3><p className="mt-2 text-sm text-white">This cannot be undone.</p><div className="mt-6 flex gap-3"><button onClick={() => setConfirmId(null)} className="btn-ghost flex-1">Cancel</button><button onClick={() => handleDelete(confirmId)} className="btn-primary flex-1 !bg-gradient-to-br !from-red-500 !to-red-600">Delete</button></div></motion.div></motion.div>)}</AnimatePresence>
+    </div>
+  )
+}
